@@ -17,3 +17,7 @@ Portable RF Toolkit based on ESP32-C3
 ██║     ██████╔╝    ██║  ██║██║
 ╚═╝     ╚═════╝     ╚═╝  ╚═╝╚═╝
 ```
+
+
+
+[🌐 Open Web Flasher](https://github.com/agrantx/PD_RF/blob/main/pd-rf-flasher.html)
