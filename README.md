@@ -18,14 +18,14 @@ Portable RF Toolkit based on ESP32-C3
 ╚═╝     ╚═════╝     ╚═╝  ╚═╝╚═╝
 ```
 
-## 🌐 Web Flasher 🌐
+# 🌐 Web Flasher 🌐
  
 [🌐 Open Web Flasher](https://agrantx.github.io/PD_RF/pd-rf-flasher.html)
 
 
-## 🔌 Pinout
+# 🔌 Pinout
 
-#### 📡 CC1101
+### 📡 CC1101
 
 | Signal | GPIO |
 |---------|---------|
