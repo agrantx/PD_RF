@@ -25,7 +25,7 @@ Portable RF Toolkit based on ESP32-C3
 
 ## 🔌 Pinout
 
-### 📡 CC1101
+#### 📡 CC1101
 
 | Signal | GPIO |
 |---------|---------|
