@@ -21,3 +21,41 @@ Portable RF Toolkit based on ESP32-C3
 
 
 [🌐 Open Web Flasher](https://agrantx.github.io/PD_RF/pd-rf-flasher.html)
+
+
+## 🔌 Pinout
+
+### 📡 CC1101
+
+| Signal | GPIO |
+|---------|---------|
+| CSN | GPIO 5 |
+| GDO0 | GPIO 4 |
+| GDO2 | GPIO 3 |
+| MOSI | GPIO 7 |
+| MISO | GPIO 2 |
+| SCK | GPIO 6 |
+
+### 🖥 OLED SSD1306
+
+| Signal | GPIO |
+|---------|---------|
+| SDA | GPIO 9 |
+| SCL | GPIO 10 |
+
+### 💾 SD Card
+
+| Signal | GPIO |
+|---------|---------|
+| CS | GPIO 8 |
+| MOSI | GPIO 7 |
+| MISO | GPIO 2 |
+| SCK | GPIO 6 |
+
+### 🔘 Buttons
+
+| Button | GPIO |
+|---------|---------|
+| UP | GPIO 0 |
+| DOWN | GPIO 1 |
+| OK | GPIO 21 |
