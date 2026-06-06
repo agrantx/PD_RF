@@ -59,3 +59,19 @@ Portable RF Toolkit based on ESP32-C3
 | UP | GPIO 0 |
 | DOWN | GPIO 1 |
 | OK | GPIO 21 |
+
+# ⚠️ Power Notes
+
+NRF24L01 modules can be sensitive to power quality.
+
+* Use a stable 3.3V supply
+* Add a 10µF–100µF capacitor between VCC and GND near the module
+* Do not connect VCC to 5V
+
+# 📦 Hardware
+
+* ESP32-C3
+* NRF24L01
+* OLED SSD1306 (I2C)
+* MicroSD Card Module
+* 3 Push Buttons
