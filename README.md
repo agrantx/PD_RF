@@ -71,7 +71,7 @@ NRF24L01 modules can be sensitive to power quality.
 # 📦 Hardware
 
 * ESP32-C3
-* NRF24L01
+* CC1101
 * OLED SSD1306 (I2C)
 * MicroSD Card Module
 * 3 Push Buttons
