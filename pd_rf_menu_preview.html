@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PD RF — Simulator</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap');
+  :root{--green:#00ff88;--dg:#00994f;--bg:#090e09;--border:#1a2e1a;--btn:#111a11;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--green);font-family:'Share Tech Mono',monospace;
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;padding:20px;gap:18px;}
+  h1{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:6px;color:var(--dg);}
+  .device{background:#0b120b;border:1px solid var(--border);border-radius:16px;
+    padding:20px;display:flex;flex-direction:column;align-items:center;gap:16px;
+    box-shadow:0 0 60px #00ff2210,inset 0 1px 0 #1a2e1a;position:relative;}
+  .device::before{content:'ESP32-C3 SUPER MINI';position:absolute;top:7px;left:50%;
+    transform:translateX(-50%);font-size:7px;letter-spacing:3px;color:#152515;}
+  .screen-wrap{border:2px solid #1a2e1a;border-radius:4px;padding:3px;
+    background:#050a05;box-shadow:0 0 20px #00ff4408,inset 0 0 8px #000;}
+  canvas{display:block;image-rendering:pixelated;border-radius:2px;}
+  .buttons{display:flex;gap:14px;align-items:center;}
+  .btn-col{display:flex;flex-direction:column;align-items:center;gap:5px;}
+  .bl{font-size:8px;letter-spacing:2px;color:#336633;text-transform:uppercase;}
+  button{background:var(--btn);border:1px solid #1e3a1e;color:var(--green);
+    font-family:'Share Tech Mono',monospace;font-size:11px;cursor:pointer;
+    border-radius:50%;width:44px;height:44px;display:flex;align-items:center;
+    justify-content:center;transition:background .1s,box-shadow .1s,transform .05s;
+    user-select:none;-webkit-tap-highlight-color:transparent;position:relative;
+    box-shadow:0 3px 0 #081208,inset 0 1px 0 #1e3a1e;}
+  button:hover{background:#1a2e1a;box-shadow:0 3px 0 #081208,0 0 12px #00ff4420,inset 0 1px 0 #1e3a1e;}
+  button:active{transform:translateY(2px);box-shadow:0 1px 0 #081208,inset 0 1px 0 #1e3a1e;background:#003322;}
+  .btn-ok{width:52px;height:52px;background:#0a150a;border-color:#264026;font-size:10px;}
+  .hint-box{background:#080e08;border:1px solid #1a2e1a;border-radius:8px;padding:9px 13px;
+    font-size:10px;line-height:1.8;color:#336633;max-width:340px;width:100%;}
+  .hint-box b{color:var(--green);}
+  .lp-ring{position:absolute;inset:-5px;border-radius:50%;border:2px solid transparent;
+    border-top-color:var(--green);opacity:0;pointer-events:none;transition:opacity .1s;}
+  .lp-ring.spin{opacity:1;animation:spin 1s linear forwards;}
+  @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<h1>PD RF &mdash; SIMULATOR</h1>
+<div class="device">
+  <div class="screen-wrap">
+    <canvas id="oled" width="256" height="128"></canvas>
+  </div>
+  <div class="buttons">
+    <div class="btn-col">
+      <span class="bl">UP</span>
+      <button id="bUp">▲</button>
+    </div>
+    <div class="btn-col">
+      <span class="bl">OK</span>
+      <button id="bOk" class="btn-ok">OK<div class="lp-ring" id="lpR"></div></button>
+    </div>
+    <div class="btn-col">
+      <span class="bl">DN</span>
+      <button id="bDn">▼</button>
+    </div>
+  </div>
+</div>
+<div class="hint-box" id="hintBox"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+const TAB={SPEC:0,REC:1,PLAY:2,SET:3};
+const TAB_NAMES=['SPEC','REC','PLAY','SET'];
+let activeTab=0;
+
+const cfg={freq:433.920,bwIndex:2,modIndex:0,highGain:true,invertTheme:false};
+let cfgBackup={...cfg};
+const BW=['58kHz','101kHz','203kHz','406kHz','812kHz'];
+const MOD=['OOK','2FSK'];
+
+// Settings
+let setMode=0, setItem=0, setScroll=0;
+const SET_TOTAL=7, SET_VIS=3;
+
+// Record
+const REC_BUF=4096;
+let recBuf=new Uint8Array(REC_BUF);
+let recLen=0, isRecording=false, recPaused=false, hasRecording=false;
+let recStartMs=0, recDurationMs=0;
+let wavePreview=new Uint8Array(128), waveLen=0;
+// RSSI history for live scope (128 samples)
+let rssiHist=new Int8Array(128), rssiHead=0;
+
+// Play / file
+let isPlaying=false, isPaused=false;
+let playStartMs=0, pauseOffset=0;
+let inFileList=false, inFilePlayer=false;
+let fileCursor=0, fileScroll=0;
+const fileList=['sig0001.sub','sig0023.sub','sig0247.sub','SIG_433.sub'];
+let openedFile='';
+
+// Spectrum
+const specBars=new Array(32).fill(0);
+let specPhase=0;
+
+// ═══════════════════════════════════════════════════════════════
+// CANVAS
+// ═══════════════════════════════════════════════════════════════
+const canvas=document.getElementById('oled');
+const ctx=canvas.getContext('2d');
+const SC=2, W=128, H=64;
+let drawColor=1;
+
+function bgColor(){return cfg.invertTheme?'#d4f7d4':'#000';}
+function fgColor(c){
+  const lit=cfg.invertTheme?'#000':'#d0f0d0';
+  const off=cfg.invertTheme?'#d4f7d4':'#000';
+  return c===1?lit:off;
+}
+function px(x,y){
+  if(x<0||x>=W||y<0||y>=H)return;
+  ctx.fillStyle=fgColor(drawColor);
+  ctx.fillRect(x*SC,y*SC,SC,SC);
+}
+function hLine(x,y,w){for(let i=0;i<w;i++)px(x+i,y);}
+function vLine(x,y,h){for(let i=0;i<h;i++)px(x,y+i);}
+function box(x,y,w,h){
+  ctx.fillStyle=fgColor(drawColor);
+  ctx.fillRect(x*SC,y*SC,w*SC,h*SC);
+}
+function frame(x,y,w,h){
+  hLine(x,y,w);hLine(x,y+h-1,w);vLine(x,y,h);vLine(x+w-1,y,h);
+}
+function rBox(x,y,w,h,r){
+  box(x+r,y,w-2*r,h);
+  box(x,y+r,r,h-2*r);
+  box(x+w-r,y+r,r,h-2*r);
+  for(let dy=0;dy<r;dy++)for(let dx=0;dx<r;dx++){
+    if(Math.sqrt((r-dx-.5)**2+(r-dy-.5)**2)<=r){
+      px(x+dx,y+dy);px(x+w-1-dx,y+dy);
+      px(x+dx,y+h-1-dy);px(x+w-1-dx,y+h-1-dy);
+    }
+  }
+}
+function rFrame(x,y,w,h,r){
+  hLine(x+r,y,w-2*r);hLine(x+r,y+h-1,w-2*r);
+  vLine(x,y+r,h-2*r);vLine(x+w-1,y+r,h-2*r);
+  for(let a=0;a<=90;a+=4){
+    const rad=a*Math.PI/180;
+    const dx=Math.round(r-r*Math.cos(rad)),dy=Math.round(r-r*Math.sin(rad));
+    px(x+dx,y+dy);px(x+w-1-dx,y+dy);
+    px(x+dx,y+h-1-dy);px(x+w-1-dx,y+h-1-dy);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FONT 5×7
+// ═══════════════════════════════════════════════════════════════
+const F={
+  ' ':[[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]],
+  'A':[[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'B':[[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0]],
+  'C':[[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,1],[0,1,1,1,0]],
+  'D':[[1,1,1,0,0],[1,0,0,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,1,0],[1,1,1,0,0]],
+  'E':[[1,1,1,1,1],[1,0,0,0,0],[1,0,0,0,0],[1,1,1,1,0],[1,0,0,0,0],[1,0,0,0,0],[1,1,1,1,1]],
+  'F':[[1,1,1,1,1],[1,0,0,0,0],[1,0,0,0,0],[1,1,1,1,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0]],
+  'G':[[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,0],[1,0,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,0]],
+  'H':[[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'I':[[1,1,1,1,1],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[1,1,1,1,1]],
+  'J':[[0,0,0,0,1],[0,0,0,0,1],[0,0,0,0,1],[0,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,0]],
+  'K':[[1,0,0,0,1],[1,0,0,1,0],[1,0,1,0,0],[1,1,0,0,0],[1,0,1,0,0],[1,0,0,1,0],[1,0,0,0,1]],
+  'L':[[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,1,1,1,1]],
+  'M':[[1,0,0,0,1],[1,1,0,1,1],[1,0,1,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'N':[[1,0,0,0,1],[1,1,0,0,1],[1,0,1,0,1],[1,0,0,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'O':[[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,0]],
+  'P':[[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0]],
+  'Q':[[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,1,0,1],[1,0,0,1,0],[0,1,1,0,1]],
+  'R':[[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0],[1,0,1,0,0],[1,0,0,1,0],[1,0,0,0,1]],
+  'S':[[0,1,1,1,1],[1,0,0,0,0],[1,0,0,0,0],[0,1,1,1,0],[0,0,0,0,1],[0,0,0,0,1],[1,1,1,1,0]],
+  'T':[[1,1,1,1,1],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0]],
+  'U':[[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,0]],
+  'V':[[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[0,1,0,1,0],[0,1,0,1,0],[0,0,1,0,0]],
+  'W':[[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,1,0,1],[1,0,1,0,1],[1,1,0,1,1],[1,0,0,0,1]],
+  'X':[[1,0,0,0,1],[0,1,0,1,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,1,0,1,0],[1,0,0,0,1]],
+  'Y':[[1,0,0,0,1],[1,0,0,0,1],[0,1,0,1,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0]],
+  'Z':[[1,1,1,1,1],[0,0,0,0,1],[0,0,0,1,0],[0,0,1,0,0],[0,1,0,0,0],[1,0,0,0,0],[1,1,1,1,1]],
+  '0':[[0,1,1,1,0],[1,0,0,0,1],[1,0,0,1,1],[1,0,1,0,1],[1,1,0,0,1],[1,0,0,0,1],[0,1,1,1,0]],
+  '1':[[0,0,1,0,0],[0,1,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,1,1,1,0]],
+  '2':[[0,1,1,1,0],[1,0,0,0,1],[0,0,0,0,1],[0,0,0,1,0],[0,0,1,0,0],[0,1,0,0,0],[1,1,1,1,1]],
+  '3':[[1,1,1,1,0],[0,0,0,0,1],[0,0,0,0,1],[0,1,1,1,0],[0,0,0,0,1],[0,0,0,0,1],[1,1,1,1,0]],
+  '4':[[0,0,0,1,0],[0,0,1,1,0],[0,1,0,1,0],[1,0,0,1,0],[1,1,1,1,1],[0,0,0,1,0],[0,0,0,1,0]],
+  '5':[[1,1,1,1,1],[1,0,0,0,0],[1,0,0,0,0],[1,1,1,1,0],[0,0,0,0,1],[0,0,0,0,1],[1,1,1,1,0]],
+  '6':[[0,1,1,1,0],[1,0,0,0,0],[1,0,0,0,0],[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,0]],
+  '7':[[1,1,1,1,1],[0,0,0,0,1],[0,0,0,1,0],[0,0,1,0,0],[0,1,0,0,0],[0,1,0,0,0],[0,1,0,0,0]],
+  '8':[[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,0]],
+  '9':[[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,1],[0,0,0,0,1],[0,0,0,0,1],[0,1,1,1,0]],
+  '.':[[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,1,1,0,0],[0,1,1,0,0]],
+  ':':[[0,0,0,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,0,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,0,0,0]],
+  '/':[[0,0,0,0,1],[0,0,0,1,0],[0,0,0,1,0],[0,0,1,0,0],[0,0,1,0,0],[0,1,0,0,0],[0,1,0,0,0]],
+  '\\':[[1,0,0,0,0],[0,1,0,0,0],[0,1,0,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,0,1,0],[0,0,0,0,1]],
+  '-':[[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[1,1,1,1,1],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]],
+  '_':[[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[1,1,1,1,1]],
+  '>':[[1,0,0,0,0],[0,1,0,0,0],[0,0,1,0,0],[0,0,0,1,0],[0,0,1,0,0],[0,1,0,0,0],[1,0,0,0,0]],
+  '<':[[0,0,0,0,1],[0,0,0,1,0],[0,0,1,0,0],[0,1,0,0,0],[0,0,1,0,0],[0,0,0,1,0],[0,0,0,0,1]],
+  '[':[[0,1,1,0,0],[0,1,0,0,0],[0,1,0,0,0],[0,1,0,0,0],[0,1,0,0,0],[0,1,0,0,0],[0,1,1,0,0]],
+  ']':[[0,0,1,1,0],[0,0,0,1,0],[0,0,0,1,0],[0,0,0,1,0],[0,0,0,1,0],[0,0,0,1,0],[0,0,1,1,0]],
+  '|':[[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0]],
+  // Кириллица
+  'А':[[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'Б':[[1,1,1,1,1],[1,0,0,0,0],[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,0]],
+  'В':[[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0]],
+  'Г':[[1,1,1,1,1],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0]],
+  'Д':[[0,0,1,1,0],[0,1,0,1,0],[0,1,0,1,0],[0,1,0,1,0],[1,1,1,1,1],[1,0,0,0,1],[1,1,0,1,1]],
+  'Е':[[1,1,1,1,1],[1,0,0,0,0],[1,0,0,0,0],[1,1,1,1,0],[1,0,0,0,0],[1,0,0,0,0],[1,1,1,1,1]],
+  'З':[[1,1,1,1,0],[0,0,0,0,1],[0,0,0,0,1],[0,1,1,1,0],[0,0,0,0,1],[0,0,0,0,1],[1,1,1,1,0]],
+  'И':[[1,0,0,0,1],[1,0,0,0,1],[1,1,0,0,1],[1,0,1,0,1],[1,0,0,1,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'К':[[1,0,0,0,1],[1,0,0,1,0],[1,0,1,0,0],[1,1,0,0,0],[1,0,1,0,0],[1,0,0,1,0],[1,0,0,0,1]],
+  'Л':[[0,0,1,1,1],[0,1,0,0,1],[0,1,0,0,1],[0,1,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'М':[[1,0,0,0,1],[1,1,0,1,1],[1,0,1,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'Н':[[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'О':[[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,0]],
+  'П':[[1,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'Р':[[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0]],
+  'С':[[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,1],[0,1,1,1,0]],
+  'Т':[[1,1,1,1,1],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0]],
+  'У':[[1,0,0,0,1],[1,0,0,0,1],[0,1,0,1,0],[0,0,1,0,0],[0,0,1,0,0],[0,1,0,0,0],[1,0,0,0,0]],
+  'Ф':[[0,1,1,1,0],[1,0,1,0,1],[1,0,1,0,1],[1,1,1,1,1],[1,0,1,0,1],[1,0,1,0,1],[0,1,1,1,0]],
+  'Х':[[1,0,0,0,1],[0,1,0,1,0],[0,0,1,0,0],[0,0,1,0,0],[0,1,0,1,0],[0,1,0,1,0],[1,0,0,0,1]],
+  'Ч':[[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,1],[0,0,0,0,1],[0,0,0,0,1],[0,0,0,0,1],[0,0,0,0,1]],
+  'Ш':[[1,0,1,0,1],[1,0,1,0,1],[1,0,1,0,1],[1,0,1,0,1],[1,0,1,0,1],[1,0,1,0,1],[1,1,1,1,1]],
+  'Ь':[[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0]],
+  'Э':[[1,1,1,1,0],[0,0,0,0,1],[0,0,0,0,1],[0,1,1,1,1],[0,0,0,0,1],[0,0,0,0,1],[1,1,1,1,0]],
+  'Я':[[0,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,1],[0,0,1,0,1],[0,1,0,0,1],[1,0,0,0,1]],
+  'й':[[0,1,0,1,0],[1,0,1,0,1],[1,0,0,0,1],[1,1,0,0,1],[1,0,1,0,1],[1,0,0,1,1],[1,0,0,0,1]],
+  'т':[[1,1,1,1,1],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0],[0,0,1,0,0]],
+  'а':[[0,0,0,0,0],[0,1,1,1,0],[0,0,0,0,1],[0,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,1]],
+  'е':[[0,0,0,0,0],[0,1,1,1,0],[1,0,0,0,1],[1,1,1,1,1],[1,0,0,0,0],[1,0,0,0,1],[0,1,1,1,0]],
+  'н':[[0,0,0,0,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'о':[[0,0,0,0,0],[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,0]],
+  'р':[[0,0,0,0,0],[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0],[1,0,0,0,0],[1,0,0,0,0]],
+  'с':[[0,0,0,0,0],[0,1,1,1,0],[1,0,0,0,1],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,1],[0,1,1,1,0]],
+  'и':[[0,0,0,0,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,0,0,1],[1,0,1,0,1],[1,0,0,1,1],[1,0,0,0,1]],
+  'г':[[0,0,0,0,0],[1,1,1,1,1],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0]],
+  'л':[[0,0,0,0,0],[0,0,1,1,1],[0,1,0,0,1],[0,1,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'я':[[0,0,0,0,0],[0,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,1],[0,0,1,0,1],[1,0,0,0,1]],
+  'х':[[0,0,0,0,0],[1,0,0,0,1],[0,1,0,1,0],[0,0,1,0,0],[0,0,1,0,0],[0,1,0,1,0],[1,0,0,0,1]],
+  'ь':[[0,0,0,0,0],[1,0,0,0,0],[1,0,0,0,0],[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0]],
+  'й':[[0,1,0,1,0],[1,0,1,0,1],[1,0,0,0,1],[1,1,0,0,1],[1,0,1,0,1],[1,0,0,1,1],[1,0,0,0,1]],
+  'у':[[0,0,0,0,0],[1,0,0,0,1],[1,0,0,0,1],[0,1,0,1,0],[0,0,1,0,0],[0,0,1,0,0],[0,1,0,0,0]],
+  'в':[[0,0,0,0,0],[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,0],[1,0,0,0,1],[1,1,1,1,0]],
+  'д':[[0,0,1,1,0],[0,1,0,1,0],[0,1,0,1,0],[1,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,1,0,1,1]],
+  'б':[[0,1,1,1,0],[1,0,0,0,0],[1,0,0,0,0],[1,1,1,1,0],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,0]],
+  'к':[[0,0,0,0,0],[1,0,0,0,1],[1,0,0,1,0],[1,0,1,0,0],[1,1,0,0,0],[1,0,1,0,0],[1,0,0,1,0]],
+  'ф':[[0,0,0,0,0],[0,1,1,1,0],[1,0,1,0,1],[1,1,1,1,1],[1,0,1,0,1],[0,1,1,1,0],[0,0,1,0,0]],
+  'п':[[0,0,0,0,0],[1,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1]],
+  'з':[[0,0,0,0,0],[1,1,1,1,0],[0,0,0,0,1],[0,0,0,1,0],[0,1,1,1,0],[0,0,0,0,1],[1,1,1,1,0]],
+  'ш':[[0,0,0,0,0],[1,0,1,0,1],[1,0,1,0,1],[1,0,1,0,1],[1,0,1,0,1],[1,0,1,0,1],[1,1,1,1,1]],
+  'ч':[[0,0,0,0,0],[1,0,0,0,1],[1,0,0,0,1],[0,1,1,1,1],[0,0,0,0,1],[0,0,0,0,1],[0,0,0,0,1]],
+};
+
+function drawStr(str,x,y){
+  let cx=x;
+  for(const ch of str){
+    const g=F[ch]||F[ch.toUpperCase()]||F[' '];
+    if(!g){cx+=6;continue;}
+    for(let r=0;r<7;r++)for(let c=0;c<5;c++)if(g[r][c])px(cx+c,y-7+r);
+    cx+=6;
+  }
+  return cx-x;
+}
+function strW(s){return s.length*6;}
+
+// ═══════════════════════════════════════════════════════════════
+// DRAW FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+
+function drawHeader(){
+  drawColor=1; box(0,0,W,11);
+  drawColor=0; drawStr('PD RF',1,9);
+  drawColor=1;
+  for(let i=0;i<4;i++){
+    const x=45+i*21;
+    if(i===activeTab){
+      drawColor=0; box(x-1,0,21,11);
+      drawColor=1; frame(x-1,0,21,11);
+      drawStr(TAB_NAMES[i],x,9);
+    } else {
+      drawColor=0; drawStr(TAB_NAMES[i],x,9); drawColor=1;
+    }
+  }
+  hLine(0,11,W);
+}
+
+// Spectrum — RSSI animation
+function specUpdate(){
+  specPhase+=0.06;
+  for(let i=0;i<32;i++){
+    const t=Math.max(0,Math.min(50,Math.round(
+      20+16*Math.sin(specPhase+i*0.38)+7*Math.sin(specPhase*2.1+i*0.9)+(Math.random()-.5)*10
+    )));
+    specBars[i]=Math.round((specBars[i]*3+t)/4);
+  }
+}
+function drawSpectrum(){
+  drawColor=1;
+  drawStr(cfg.freq.toFixed(3)+'MHz',0,20);
+  for(let i=0;i<32;i++){
+    const h=specBars[i],bx=i*4,by=63-h;
+    box(bx,by,3,h);
+  }
+  hLine(0,63,W);
+}
+
+// RSSI scope (записывается каждый тик пока isRecording)
+function rssiUpdate(){
+  const v=Math.round(12*Math.sin(Date.now()*0.008)+8*Math.sin(Date.now()*0.023)+(Math.random()-.5)*16);
+  rssiHist[rssiHead]=Math.max(-63,Math.min(63,v));
+  rssiHead=(rssiHead+1)%128;
+}
+function drawRssiScope(yCenter,amp){
+  for(let x=0;x<128;x++){
+    const idx=(rssiHead+x)%128;
+    const dy=Math.round(rssiHist[idx]*amp/63);
+    px(x,yCenter-dy);
+    if(x>0){
+      const idxP=(rssiHead+x-1)%128;
+      const dyP=Math.round(rssiHist[idxP]*amp/63);
+      const y0=yCenter-dyP,y1=yCenter-dy;
+      if(y0!==y1)vLine(x,Math.min(y0,y1),Math.abs(y0-y1)+1);
+    }
+  }
+}
+
+function drawWaveformFull(wave,len,yHigh,yLow){
+  if(!len)return;
+  for(let x=0;x<128;x++){
+    const i=Math.round(x*(len-1)/127);
+    const in2=Math.min(i+1,len-1);
+    const y=wave[i]?yHigh:yLow, yn=wave[in2]?yHigh:yLow;
+    px(x,y);
+    if(y!==yn)vLine(x,Math.min(y,yn),Math.abs(y-yn)+1);
+  }
+}
+
+function drawRecord(){
+  drawColor=1;
+  drawStr(cfg.freq.toFixed(3)+'MHz',0,20);
+  hLine(0,21,W);
+  if(isRecording){
+    drawColor=1;
+    hLine(0,35,W);
+    if(!recPaused){
+      drawRssiScope(35,10);
+      // Мигающий кружок
+      if(Math.floor(Date.now()/500)%2===0){
+        for(let a=0;a<360;a+=30){
+          px(123+Math.round(3*Math.cos(a*Math.PI/180)),15+Math.round(3*Math.sin(a*Math.PI/180)));
+        }
+        box(121,13,3,3);
+      }
+      const ms=Date.now()-recStartMs;
+      const sec=Math.floor(ms/1000);
+      const t=p2(Math.floor(sec/60))+':'+p2(sec%60)+'.'+Math.floor((ms%1000)/100);
+      drawStr(t,0,62);
+      drawStr('REC',85,62);
+      drawStr('OK=PAUSE',40,62);
+    } else {
+      drawWaveformFull(wavePreview,waveLen,28,42);
+      drawStr('||',0,62);
+      drawStr('PAUSED',40,62);
+      drawStr('1s=SAVE',80,62);
+    }
+  } else if(hasRecording){
+    drawWaveformFull(wavePreview,waveLen,28,42);
+    drawStr(recLen+' bytes',0,62);
+  } else {
+    drawStr('NO RECORDING',12,35);
+    drawStr('[OK] = start',8,50);
+  }
+}
+
+function drawFileList(){
+  drawColor=1;
+  if(!fileList.length){
+    drawStr('No files on SD',2,35);
+    drawStr('2xOK = exit',10,50);
+    return;
+  }
+  // Scroll adjust
+  if(fileCursor<fileScroll) fileScroll=fileCursor;
+  if(fileCursor>=fileScroll+3) fileScroll=fileCursor-2;
+
+  for(let vi=0;vi<3;vi++){
+    const idx=fileScroll+vi;
+    if(idx>=fileList.length)break;
+    const y=22+vi*14;
+    const sel=(idx===fileCursor);
+    if(sel){
+      drawColor=1; box(0,y-10,128,12);
+      drawColor=0; drawStr(fileList[idx],4,y); drawColor=1;
+    } else {
+      drawStr(fileList[idx],4,y);
+    }
+  }
+  // Scrollbar
+  if(fileList.length>3){
+    const bH=Math.round(42*3/fileList.length);
+    const bY=12+Math.round(42*fileScroll/fileList.length);
+    frame(126,12,2,42); box(126,bY,2,bH);
+  }
+  drawStr('1s=open  2xOK=exit',0,63);
+}
+
+function drawFilePlayer(){
+  drawColor=1;
+  drawStr('>'+openedFile,0,21);
+  hLine(0,23,W);
+  // Живой RSSI-осциллограф (анимированный как при записи)
+  hLine(0,38,W);
+  drawRssiScope(38,10);
+  // Progress bar — full width
+  const elapsed=isPlaying&&!isPaused?(pauseOffset+Date.now()-playStartMs):pauseOffset;
+  const total=recDurationMs||1;
+  const prog=Math.min(128,Math.round(128*elapsed/total));
+  frame(0,48,128,4); box(0,48,prog,4);
+  const sec=Math.floor(elapsed/1000),tsec=Math.floor(recDurationMs/1000);
+  drawStr(p2(Math.floor(sec/60))+':'+p2(sec%60)+'/'+p2(Math.floor(tsec/60))+':'+p2(tsec%60),0,62);
+  const st=isPlaying?(isPaused?'||':'>  '):'[  ]';
+  drawStr(st,108,62);
+}
+
+function drawPlay(){
+  drawColor=1;
+  if(inFileList){ drawFileList(); return; }
+  if(inFilePlayer){ drawFilePlayer(); return; }
+  drawStr('2xOK = file list',2,30);
+  drawStr('Files: '+fileList.length,2,44);
+}
+
+function getSetLabel(i){
+  switch(i){
+    case 0: return 'FREQ  '+cfg.freq.toFixed(3)+'MHz';
+    case 1: return 'BW    '+BW[cfg.bwIndex];
+    case 2: return 'MOD   '+MOD[cfg.modIndex];
+    case 3: return 'GAIN  '+(cfg.highGain?'HIGH':'LOW');
+    case 4: return 'THEME '+(cfg.invertTheme?'INV':'NORM');
+    case 5: return '  SAVE';
+    case 6: return '  EXIT';
+  }
+}
+
+function drawSettings(){
+  if(setItem<setScroll) setScroll=setItem;
+  if(setItem>=setScroll+SET_VIS) setScroll=setItem-SET_VIS+1;
+
+  drawColor=1;
+  for(let vi=0;vi<SET_VIS;vi++){
+    const idx=setScroll+vi;
+    if(idx>=SET_TOTAL)break;
+    const y=23+vi*14;
+    const isSel=idx===setItem&&setMode>=1;
+    const isEdit=idx===setItem&&setMode===2;
+    const lbl=getSetLabel(idx);
+
+    drawColor=1;
+    if(idx===5||idx===6){
+      if(isSel){
+        rBox(1,y-10,126,12,3);
+        drawColor=0; drawStr(lbl,4,y); drawColor=1;
+      } else {
+        rFrame(1,y-10,126,12,3); drawStr(lbl,4,y);
+      }
+    } else {
+      if(isSel||isEdit){
+        // Белый фон, чёрный текст (выбранный и редактируемый — оба так)
+        box(0,y-10,W,12);
+        drawColor=0; drawStr(lbl,2,y); drawColor=1;
+        // Если редактируем — ещё рамка снаружи для отличия
+        if(isEdit) frame(0,y-10,W,12);
+      } else {
+        drawStr(lbl,2,y);
+      }
+    }
+  }
+
+  // Scrollbar
+  if(SET_TOTAL>SET_VIS){
+    const bH=Math.round(42*SET_VIS/SET_TOTAL);
+    const bY=12+Math.round(42*setScroll/SET_TOTAL);
+    frame(126,12,2,42); box(126,bY,2,bH);
+  }
+
+  drawColor=1;
+  if(setMode===0) drawStr('2xOK=enter  2xOK=exit',0,63);
+  else if(setMode===1) drawStr('1sOK=edit  2xOK=exit',0,63);
+  else drawStr('UP/DN=val  1sOK=OK',0,63);
+}
+
+function p2(n){return String(n).padStart(2,'0');}
+
+// ═══════════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════════
+function render(){
+  ctx.fillStyle=bgColor();
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  drawColor=1;
+  drawHeader();
+  switch(activeTab){
+    case TAB.SPEC: drawSpectrum(); break;
+    case TAB.REC:  drawRecord();   break;
+    case TAB.PLAY: drawPlay();     break;
+    case TAB.SET:  drawSettings(); break;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BUTTON LOGIC
+// ═══════════════════════════════════════════════════════════════
+let okDownAt=0, okLongFired=false, okClickCount=0, okLastClick=0;
+const LONG_MS=1000, DBL_MS=350;
+
+// Guard: ignore longPress for a short window after mode changes
+// to prevent the same press from triggering both double-click and long-press actions
+let okGuardUntil=0;
+
+function startOk(){
+  okDownAt=Date.now(); okLongFired=false;
+  const r=document.getElementById('lpR');
+  r.classList.remove('spin'); void r.offsetWidth; r.classList.add('spin');
+}
+function endOk(){
+  document.getElementById('lpR').classList.remove('spin');
+  okDownAt=0;
+  if(okLongFired)return;
+  okClickCount++;
+  const now=Date.now();
+  if(okClickCount>=2&&now-okLastClick<DBL_MS){
+    okClickCount=0;
+    okGuardUntil=Date.now()+600; // block long-press for 600ms after double-click
+    doOkDouble();
+  } else {
+    okLastClick=now;
+    setTimeout(()=>{ if(okClickCount===1){doOkShort();} okClickCount=0; },DBL_MS);
+  }
+}
+setInterval(()=>{
+  if(okDownAt>0&&!okLongFired&&Date.now()-okDownAt>=LONG_MS){
+    if(Date.now()<okGuardUntil) return; // guarded — skip
+    okLongFired=true; doOkLong();
+  }
+},30);
+
+function doOkShort(){
+  // Settings browse — SAVE/EXIT
+  if(setMode===1){
+    if(setItem===5){ setMode=0; updateHint(); }
+    if(setItem===6){ Object.assign(cfg,cfgBackup); setMode=0; updateHint(); }
+    return;
+  }
+  // REC tab
+  if(activeTab===TAB.REC&&setMode===0){
+    if(!isRecording){
+      isRecording=true; recPaused=false; recStartMs=Date.now(); rssiHead=0; rssiHist.fill(0);
+    } else if(!recPaused){
+      recPaused=true; // поставить на паузу
+    } else {
+      recPaused=false; // продолжить
+    }
+    updateHint(); return;
+  }
+  // PLAY player
+  if(activeTab===TAB.PLAY&&inFilePlayer){
+    if(!isPlaying){ isPlaying=true; isPaused=false; playStartMs=Date.now(); pauseOffset=0; }
+    else { isPaused=!isPaused; if(!isPaused) playStartMs=Date.now(); else pauseOffset+=Date.now()-playStartMs; }
+    return;
+  }
+}
+function doOkDouble(){
+  // SET tab
+  if(activeTab===TAB.SET){
+    if(setMode===0){ setMode=1; setItem=0; setScroll=0; Object.assign(cfgBackup,cfg); }
+    else { Object.assign(cfg,cfgBackup); setMode=0; }
+    updateHint(); return;
+  }
+  // PLAY — list open/close
+  if(activeTab===TAB.PLAY){
+    if(inFilePlayer){ isPlaying=false;isPaused=false; inFilePlayer=false; inFileList=true; }
+    else if(inFileList){ inFileList=false; }
+    else { fileCursor=0; fileScroll=0; inFileList=true; }
+    updateHint(); return;
+  }
+}
+function doOkLong(){
+  if(Date.now()<okGuardUntil) return;
+  if(setMode===1&&setItem<5){ setMode=2; okGuardUntil=Date.now()+800; updateHint(); return; }
+  if(setMode===2){ setMode=1; okGuardUntil=Date.now()+800; updateHint(); return; }
+  // REC: save only when paused
+  if(activeTab===TAB.REC&&isRecording&&recPaused){
+    hasRecording=true;
+    recLen=Math.floor(1000+Math.random()*3000);
+    recDurationMs=recLen*10;
+    buildWavePreview();
+    isRecording=false; recPaused=false; // stop recording, keep data
+    updateHint();
+    showToast('Saved to SD as .sub'); return;
+  }
+  // PLAY file list: open file
+  if(activeTab===TAB.PLAY&&inFileList&&fileList.length){
+    openedFile=fileList[fileCursor];
+    buildWavePreview(); recDurationMs=Math.floor(3000+Math.random()*7000);
+    inFileList=false; inFilePlayer=true;
+    updateHint(); return;
+  }
+}
+
+function doUp(){
+  if(setMode===2){ changeSetting(1); return; }
+  if(setMode===1){ setItem=(setItem-1+SET_TOTAL)%SET_TOTAL; return; }
+  if(inFileList){ fileCursor=(fileCursor===0?fileList.length-1:fileCursor-1); return; }
+  if(!inFilePlayer) activeTab=(activeTab-1+4)%4;
+}
+function doDn(){
+  if(setMode===2){ changeSetting(-1); return; }
+  if(setMode===1){ setItem=(setItem+1)%SET_TOTAL; return; }
+  if(inFileList){ fileCursor=(fileCursor+1)%fileList.length; return; }
+  if(!inFilePlayer) activeTab=(activeTab+1)%4;
+}
+
+function changeSetting(d){
+  switch(setItem){
+    case 0: cfg.freq=Math.round(Math.max(300,Math.min(928,cfg.freq+d*0.005))*1000)/1000; break;
+    case 1: cfg.bwIndex=(cfg.bwIndex+d+5)%5; break;
+    case 2: cfg.modIndex=(cfg.modIndex+1)%2; break;
+    case 3: cfg.highGain=!cfg.highGain; break;
+    case 4: cfg.invertTheme=!cfg.invertTheme; break;
+  }
+}
+
+function buildWavePreview(){
+  waveLen=64;
+  for(let i=0;i<64;i++) wavePreview[i]=(Math.sin(i*0.4+Math.random())>0)?1:0;
+}
+
+// Toast
+function showToast(msg){
+  let t=document.getElementById('toast');
+  if(!t){ t=document.createElement('div'); t.id='toast';
+    t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#0d200d;border:1px solid #00ff88;color:#00ff88;padding:6px 16px;font-family:Share Tech Mono,monospace;font-size:11px;border-radius:6px;z-index:99;';
+    document.body.appendChild(t); }
+  t.textContent=msg; t.style.opacity='1';
+  clearTimeout(t._tid);
+  t._tid=setTimeout(()=>t.style.opacity='0',2000);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HINT
+// ═══════════════════════════════════════════════════════════════
+function updateHint(){
+  const h=document.getElementById('hintBox');
+  const b=s=>`<b>${s}</b>`;
+  if(inFilePlayer){
+    h.innerHTML=`${b('OK')} — pause/resume · ${b('2×OK')} — exit to list`;
+  } else if(inFileList){
+    h.innerHTML=`${b('▲▼')} — navigate · ${b('OK (1s)')} — open file · ${b('2×OK')} — exit`;
+  } else if(setMode===2){
+    h.innerHTML=`${b('▲▼')} — change value · ${b('OK (1s)')} — confirm`;
+  } else if(setMode===1){
+    h.innerHTML=`${b('▲▼')} — scroll items · ${b('OK (1s)')} — edit · ${b('2×OK')} — exit`;
+  } else if(activeTab===TAB.REC){
+    if(isRecording&&recPaused) h.innerHTML=`${b('OK')} — resume · ${b('OK (1s)')} — save .sub to SD`;
+    else if(isRecording)       h.innerHTML=`${b('OK')} — pause recording`;
+    else                       h.innerHTML=`${b('OK')} — start recording`;
+  } else if(activeTab===TAB.PLAY){
+    h.innerHTML=`${b('2×OK')} — file list · ${b('▲▼')} — navigate tabs`;
+  } else if(activeTab===TAB.SET){
+    h.innerHTML=`${b('2×OK')} — enter/exit settings · ${b('▲▼')} — scroll`;
+  } else {
+    h.innerHTML=`${b('▲▼')} — switch tabs · ${b('2×OK')} — enter SET / PLAY list`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EVENTS
+// ═══════════════════════════════════════════════════════════════
+document.getElementById('bUp').addEventListener('click',doUp);
+document.getElementById('bDn').addEventListener('click',doDn);
+document.getElementById('bOk').addEventListener('mousedown',startOk);
+document.getElementById('bOk').addEventListener('touchstart',e=>{e.preventDefault();startOk();},{passive:false});
+document.getElementById('bOk').addEventListener('mouseup',endOk);
+document.getElementById('bOk').addEventListener('touchend',e=>{e.preventDefault();endOk();},{passive:false});
+document.addEventListener('keydown',e=>{
+  if((e.key==='ArrowUp'||e.key==='w')&&!e.repeat){doUp();}
+  if((e.key==='ArrowDown'||e.key==='s')&&!e.repeat){doDn();}
+  if((e.key==='Enter'||e.key===' ')&&!e.repeat){e.preventDefault();startOk();}
+});
+document.addEventListener('keyup',e=>{
+  if(e.key==='Enter'||e.key===' '){endOk();}
+});
+
+// ═══════════════════════════════════════════════════════════════
+// LOOP
+// ═══════════════════════════════════════════════════════════════
+let lastSpec=0;
+function loop(ts){
+  if(activeTab===TAB.SPEC&&ts-lastSpec>60){specUpdate();lastSpec=ts;}
+  if(isRecording&&!recPaused) rssiUpdate();
+  if(isPlaying&&!isPaused) rssiUpdate();
+  if(isPlaying&&!isPaused){
+    const elapsed=pauseOffset+Date.now()-playStartMs;
+    if(elapsed>=recDurationMs){isPlaying=false;pauseOffset=0;}
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+
+updateHint();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
