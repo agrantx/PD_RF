@@ -21,13 +21,11 @@ Portable RF Toolkit based on ESP32-C3
 ---------------------------------------------------------------------------------
 
 ## 🌐 Web Flasher 🌐
- 
 [🌐 Open Web Flasher](https://agrantx.github.io/PD_RF/pd-rf-flasher.html)
 
 ---------------------------------------------------------------------------------
 
 ## 🌐 Web menu simulator 🌐
- 
 [🌐 Open Web Flasher](https://agrantx.github.io/PD_RF/pd-rf-flasher.html)
 
 ---------------------------------------------------------------------------------
