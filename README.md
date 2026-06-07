@@ -26,7 +26,7 @@ Portable RF Toolkit based on ESP32-C3
 ---------------------------------------------------------------------------------
 
 ## 🌐 Web menu preview 🌐
-[🌐 Open menu preview](https://agrantx.github.io/PD_RF/pd_rf_oled_menu_preview.html)
+[🌐 Open menu preview](https://agrantx.github.io/PD_RF/pd_rf_menu_preview.html)
 
 ---------------------------------------------------------------------------------
 
