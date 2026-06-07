@@ -26,7 +26,7 @@ Portable RF Toolkit based on ESP32-C3
 ---------------------------------------------------------------------------------
 
 ## 🌐 Web menu preview 🌐
-[🌐 Open Web Flasher](https://github.com/agrantx/PD_RF/blob/main/pd_rf_oled_menu_preview.html)
+[🌐 Open Web Flasher](https://agrantx.github.io/PD_RF/pd-rf-oled_menu_preview.html)
 
 ---------------------------------------------------------------------------------
 
