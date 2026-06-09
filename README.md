@@ -67,6 +67,8 @@ Portable RF Toolkit based on ESP32-C3
 | DOWN | GPIO 1 |
 | OK | GPIO 21 |
 
+---------------------------------------------------------------------------------
+
 # ⚠️ Power Notes
 
 NRF24L01 modules can be sensitive to power quality.
@@ -74,6 +76,8 @@ NRF24L01 modules can be sensitive to power quality.
 * Use a stable 3.3V supply
 * Add a 10µF–100µF capacitor between VCC and GND near the module
 * Do not connect VCC to 5V
+
+---------------------------------------------------------------------------------
 
 # 📦 Hardware
 
@@ -83,13 +87,17 @@ NRF24L01 modules can be sensitive to power quality.
 * MicroSD Card Module
 * 3 Push Buttons
 
+  ---------------------------------------------------------------------------------
+
 ## Upgrading from Standard CC1101 to E07-433M20S
+
+# coming soon 
 
 This project can be upgraded from a standard CC1101 module to the **E07-433M20S** high-power RF transceiver.
 
 ### What changes are required?
 
-# coming soon
+# wait for the update
 
 ### Recommended additions
 
