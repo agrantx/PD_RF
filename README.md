@@ -89,23 +89,7 @@ This project can be upgraded from a standard CC1101 module to the **E07-433M20S*
 
 ### What changes are required?
 
-The SPI interface remains identical:
-
-* VCC → 3.3V
-* GND → GND
-* CSN → CSN pin
-* GDO0 → GDO0 pin
-* GDO2 → GDO2 pin
-* MOSI → MOSI pin
-* MISO → MISO pin
-* SCK → SCK pin
-
-Additional control pins are recommended:
-
-* TX_EN → Free GPIO
-* RX_EN → Free GPIO
-
-These pins control the built-in PA and receiver stages of the module.
+#coming soon
 
 ### Recommended additions
 
