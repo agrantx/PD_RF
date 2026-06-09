@@ -23,8 +23,12 @@ Portable RF Toolkit based on ESP32-C3
 ## 🌐 Web Flasher 🌐 (beta)
 [🌐 Open Web Flasher](https://agrantx.github.io/PD_RF/pd-rf-flasher.html)
 
-⚠️ If the Web Flasher does not work, use the manual flasher available 
-[here](https://espressif.github.io/esptool-js/?utm_source=chatgpt.com).
+⚠️ If the Web Flasher does not work, use the manual flasher available [here](https://espressif.github.io/esptool-js/?utm_source=chatgpt.com).
+
+1. Open the flasher
+2. Connect your ESP32
+3. Select the `pd_rf_main.ino.bin` file
+4. Click **Flash** and wait for the process to complete
 
 ---------------------------------------------------------------------------------
 
