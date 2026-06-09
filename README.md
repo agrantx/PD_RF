@@ -91,13 +91,13 @@ NRF24L01 modules can be sensitive to power quality.
 
 ## Upgrading from Standard CC1101 to E07-433M20S
 
-# coming soon 
+## coming soon 
 
 This project can be upgraded from a standard CC1101 module to the **E07-433M20S** high-power RF transceiver.
 
 ### What changes are required?
 
-# wait for the update
+## wait for the update
 
 ### Recommended additions
 
