@@ -89,7 +89,7 @@ This project can be upgraded from a standard CC1101 module to the **E07-433M20S*
 
 ### What changes are required?
 
-#coming soon
+# coming soon
 
 ### Recommended additions
 
