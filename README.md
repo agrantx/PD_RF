@@ -83,37 +83,68 @@ NRF24L01 modules can be sensitive to power quality.
 * MicroSD Card Module
 * 3 Push Buttons
 
-## Upgrading from nRF24L01+ to E01-2G4M27D
+## Upgrading from Standard CC1101 to E07-433M20S
 
-This project can be upgraded from a standard nRF24L01+ module to the **E01-2G4M27D** long-range transceiver.
+This project can be upgraded from a standard CC1101 module to the **E07-433M20S** high-power RF transceiver.
+
+### What changes are required?
+
+The SPI interface remains identical:
+
+* VCC → 3.3V
+* GND → GND
+* CSN → CSN pin
+* GDO0 → GDO0 pin
+* GDO2 → GDO2 pin
+* MOSI → MOSI pin
+* MISO → MISO pin
+* SCK → SCK pin
+
+Additional control pins are recommended:
+
+* TX_EN → Free GPIO
+* RX_EN → Free GPIO
+
+These pins control the built-in PA and receiver stages of the module.
 
 ### Recommended additions
 
-Because the E01-2G4M27D contains a built-in PA (Power Amplifier) and LNA (Low Noise Amplifier), it requires significantly more current than a standard nRF24L01+.
+The E07-433M20S consumes significantly more power than a standard CC1101 module.
 
 Recommended:
 
 * Stable 3.3V power supply
-* Dedicated voltage regulator for the RF module
+* Dedicated voltage regulator
 * 100µF–470µF capacitor between VCC and GND
-* External 2.4GHz SMA antenna (3–5 dBi)
+* Quality 433MHz antenna
 * Short power wires and solid grounding
+
+The module can draw around 100mA during transmission at maximum power.
 
 ### Performance Improvements
 
-The E01-2G4M27D is based on the nRF24L01P but includes a built-in PA+LNA stage. It can transmit at up to **27 dBm (500 mW)** and provides much better receiver sensitivity compared to standard nRF24L01+ modules. According to EBYTE specifications, the module supports significantly longer communication distances and improved link stability when used with a proper antenna and power supply.
+The E07-433M20S is based on the CC1101 transceiver and includes a built-in Power Amplifier (PA).
+
+Compared to a standard CC1101 module:
+
+* Higher transmit power
+* Better long-range performance
+* Improved signal stability
+* External antenna support
+* Better performance in noisy RF environments
+
+The module supports up to **20 dBm (100mW)** output power and receiver sensitivity down to **-109 dBm**. EBYTE specifies communication distances of up to approximately **2 km** under ideal open-field conditions with a suitable antenna.
 
 ### Why upgrade?
 
-✔ Higher transmit power
+✔ More transmit power
 
-✔ Better reception sensitivity
+✔ Better range
 
-✔ Improved communication stability
+✔ Stronger signal reception
 
-✔ External SMA antenna support
+✔ External antenna support
 
-✔ Longer communication range
+✔ Improved reliability
 
-For projects that require maximum RF performance, the **E01-2G4M27D** is considerably more powerful than a standard nRF24L01+ module and is generally the recommended upgrade option.
-
+For users who want maximum Sub-GHz performance, the **E07-433M20S** is a significant upgrade over a standard CC1101 module and is the recommended choice for long-range applications.
